@@ -1,7 +1,17 @@
-  # ---------- PostgreSQL Database ----------
-
+services: 
+    # ---------- PostgreSQL Database ----------
+  db:
+    image: postgres:15-alpine
+    container_name: dad-jokes-db
+    ports: 
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: dadjokes
+      POSTGRES_PASSWORD: dadjokes
+      POSTGRES_DB: dadjokes
 
   # ---------- Express API ----------
-
 
   # ---------- React Frontend (served by nginx) ----------
