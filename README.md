@@ -1,4 +1,4 @@
-# 🧔 Dad Jokes Central
+# Dad Jokes Central
 
 A three-tier containerized web application for browsing, rating, and submitting dad jokes.
 
@@ -11,6 +11,12 @@ A three-tier containerized web application for browsing, rating, and submitting 
 │  (nginx :80) │      │  (node :3000)│      │    (:5432)   │
 └─────────────┘      └─────────────┘      └─────────────┘
      :8080                :3000                 :5432
+
+                         ┌─────────────┐
+                         │   pgAdmin   │
+                         │  DB UI :80  │
+                         └─────────────┘
+                              :5050
 ```
 
 | Layer    | Technology                  | Container Image     |
@@ -18,6 +24,7 @@ A three-tier containerized web application for browsing, rating, and submitting 
 | Frontend | React 18, Vite, TypeScript  | nginx:alpine        |
 | API      | Express 4, TypeScript, pg   | node:20-alpine      |
 | Database | PostgreSQL 16               | postgres:16-alpine  |
+| DB Admin | pgAdmin 4                   | dpage/pgadmin4:8    |
 
 Both the frontend and API Dockerfiles use **multi-stage builds** to keep production images small.  The nginx container serves the compiled React app *and* reverse-proxies `/api/*` requests to the Express service so the browser only talks to a single origin.
 
@@ -38,16 +45,59 @@ docker compose up --build
 # 3. Open your browser
 #    Frontend:  http://localhost:8080
 #    API:       http://localhost:3000/api/health
+#    pgAdmin:   http://localhost:5050
 ```
 
 The first run will:
 
-1. Pull base images (`postgres:16-alpine`, `node:20-alpine`, `nginx:alpine`).
+1. Pull base images (`postgres:16-alpine`, `node:20-alpine`, `nginx:alpine`, `dpage/pgadmin4:8`).
 2. Build the API image (install deps → compile TypeScript → copy to slim runtime stage).
 3. Build the frontend image (install deps → `vite build` → copy static files to nginx).
 4. Start PostgreSQL, run `db/init.sql` to create the `jokes` table and seed 20 jokes.
 5. Start the API (waits for the database health check to pass).
 6. Start nginx to serve the frontend.
+7. Start pgAdmin for database inspection and management.
+
+## Compose Watch
+
+Docker Compose Watch is configured in `docker-compose.yml` under each app service's `develop.watch` section.
+
+```bash
+docker compose up --build --watch
+```
+
+When source files, package manifests, TypeScript config, or nginx config change, Compose rebuilds the affected service image and restarts that container.
+
+## Compose Secrets
+
+The PostgreSQL, API, and pgAdmin services all use the same Compose secret:
+
+```yaml
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+```
+
+PostgreSQL reads it with `POSTGRES_PASSWORD_FILE`, and the API reads it with `DB_PASSWORD_FILE`. The demo secret is stored in `secrets/db_password.txt`; replace that value before using this outside a class or local-development environment.
+
+## Added Service: pgAdmin
+
+This project includes **pgAdmin** as an additional Docker Compose service for managing the PostgreSQL database from a browser.
+
+- URL: `http://localhost:5050`
+- Login email: `admin@dadjokes.local`
+- Login password: the value in `secrets/db_password.txt`
+- Register a server in pgAdmin with host `db`, port `5432`, database `dadjokes`, username `dadjokes`, and the same secret password.
+
+## Added Feature: Joke Stats
+
+The app now includes a stats panel showing the total number of jokes, total categories, average rating, and total number of times jokes have been told. The Browse view also shows quick insights for the top-rated and most-told jokes.
+
+The API endpoint powering this feature is:
+
+| Method | Endpoint     | Description                              |
+|--------|--------------|------------------------------------------|
+| GET    | `/api/stats` | Collection totals and top joke insights  |
 
 ## Stopping & Cleaning Up
 
@@ -71,6 +121,7 @@ docker compose down -v
 | PATCH   | `/api/jokes/:id/rate` | Rate a joke (0-5)               |
 | DELETE  | `/api/jokes/:id`      | Delete a joke                   |
 | GET     | `/api/categories`     | List distinct categories        |
+| GET     | `/api/stats`          | Joke stats and collection facts |
 
 ### Example: Add a joke via curl
 
@@ -84,13 +135,16 @@ curl -X POST http://localhost:3000/api/jokes \
 
 ```
 dad-jokes-app/
-├── docker-compose.yml          # Orchestrates all 3 services
+├── docker-compose.yml          # Orchestrates app, database, and pgAdmin
 ├── README.md
+├── secrets/
+│   └── db_password.txt         # Local demo Compose secret
 ├── db/
 │   └── init.sql                # Schema + seed data
 ├── api/
 │   ├── Dockerfile              # Multi-stage: build TS → slim runtime
 │   ├── package.json
+│   ├── package-lock.json
 │   ├── tsconfig.json
 │   └── src/
 │       └── index.ts            # Express routes + pg connection
@@ -109,7 +163,10 @@ dad-jokes-app/
 ## Key Docker / Compose Concepts Demonstrated
 
 - **Multi-stage builds** — both app Dockerfiles compile in a `builder` stage and copy only production artifacts to the final image.
-- **Named volumes** — `pgdata` persists database data across container restarts.
+- **Docker Compose Watch** — `develop.watch` rebuilds app containers when source/config files change.
+- **Docker Compose Secrets** — database credentials are mounted from `secrets/db_password.txt` instead of hard-coded into app containers.
+- **Additional service** — pgAdmin provides a browser-based database management UI on port `5050`.
+- **Named volumes** — `pgdata` and `pgadmin-data` persist database and pgAdmin data across container restarts.
 - **Bind-mount init scripts** — `db/init.sql` is mounted into the Postgres `docker-entrypoint-initdb.d` directory so it runs on first start.
 - **Health checks** — the `db` service exposes a health check (`pg_isready`); the `api` service uses `depends_on: condition: service_healthy` to wait for it.
 - **Service networking** — containers reference each other by service name (`db`, `api`) on the default Compose bridge network.
@@ -127,12 +184,12 @@ docker compose up db
 cd api
 npm install
 export DB_HOST=localhost DB_USER=dadjokes DB_PASSWORD=dadjokes DB_NAME=dadjokes
-npx ts-node src/index.ts
+npm run dev
 
 # Terminal 3 — Frontend (Vite dev server with hot reload)
 cd frontend
 npm install
 npm run dev
-# Note: Vite proxies /api to http://api:3000 by default.
-# For local dev, change the proxy target in vite.config.ts to http://localhost:3000.
 ```
+
+For a non-default API URL during local frontend development, set `VITE_API_PROXY_TARGET` before running `npm run dev`.

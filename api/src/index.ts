@@ -1,15 +1,31 @@
 import express, { Request, Response } from "express";
 import cors from "cors";
 import { Pool } from "pg";
+import fs from "fs";
 
 // ---------------------------------------------------------------------------
 // Database connection
 // ---------------------------------------------------------------------------
+function readSecret(name: string): string | undefined {
+  const secretFile = process.env[`${name}_FILE`];
+
+  if (!secretFile) {
+    return process.env[name];
+  }
+
+  try {
+    return fs.readFileSync(secretFile, "utf8").trim();
+  } catch (err) {
+    console.warn(`Could not read secret file for ${name}:`, err);
+    return process.env[name];
+  }
+}
+
 const pool = new Pool({
   host: process.env.DB_HOST || "localhost",
   port: Number(process.env.DB_PORT) || 5432,
   user: process.env.DB_USER || "dadjokes",
-  password: process.env.DB_PASSWORD || "dadjokes",
+  password: readSecret("DB_PASSWORD") || "dadjokes",
   database: process.env.DB_NAME || "dadjokes",
 });
 
@@ -169,6 +185,37 @@ app.get("/api/categories", async (_req: Request, res: Response) => {
   } catch (err) {
     console.error("Error fetching categories:", err);
     res.status(500).json({ error: "Failed to fetch categories" });
+  }
+});
+
+// --- GET /api/stats – dashboard summary -----------------------------------
+app.get("/api/stats", async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        COUNT(*)::int AS total_jokes,
+        COUNT(DISTINCT category)::int AS total_categories,
+        COALESCE(ROUND(AVG(rating), 2), 0)::float AS average_rating,
+        COALESCE(SUM(times_told), 0)::int AS total_times_told,
+        (
+          SELECT setup
+          FROM jokes
+          ORDER BY rating DESC, times_told DESC, id
+          LIMIT 1
+        ) AS top_rated_setup,
+        (
+          SELECT setup
+          FROM jokes
+          ORDER BY times_told DESC, rating DESC, id
+          LIMIT 1
+        ) AS most_told_setup
+      FROM jokes
+    `);
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error("Error fetching stats:", err);
+    res.status(500).json({ error: "Failed to fetch stats" });
   }
 });
 

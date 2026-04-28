@@ -12,6 +12,15 @@ interface Joke {
   times_told: number;
 }
 
+interface JokeStats {
+  total_jokes: number;
+  total_categories: number;
+  average_rating: number;
+  total_times_told: number;
+  top_rated_setup: string | null;
+  most_told_setup: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // API helper – in production the nginx proxy routes /api to the backend.
 // ---------------------------------------------------------------------------
@@ -29,6 +38,7 @@ export default function App() {
   const [view, setView] = useState<"random" | "browse" | "add">("random");
   const [loading, setLoading] = useState(false);
   const [healthy, setHealthy] = useState<boolean | null>(null);
+  const [stats, setStats] = useState<JokeStats | null>(null);
 
   // --- New joke form state ---
   const [newSetup, setNewSetup] = useState("");
@@ -51,6 +61,18 @@ export default function App() {
       .catch(console.error);
   }, []);
 
+  // --- Load joke stats ---
+  const fetchStats = useCallback(() => {
+    fetch(`${API_BASE}/stats`)
+      .then((r) => r.json())
+      .then(setStats)
+      .catch(console.error);
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
+
   // --- Fetch random joke ---
   const fetchRandom = useCallback(() => {
     setLoading(true);
@@ -59,10 +81,11 @@ export default function App() {
       .then((r) => r.json())
       .then((j) => {
         setJoke(j);
+        fetchStats();
         setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [fetchStats]);
 
   // --- Fetch all jokes (optionally filtered) ---
   const fetchAll = useCallback(() => {
@@ -96,6 +119,7 @@ export default function App() {
         setNewSetup("");
         setNewPunchline("");
         setNewCategory("general");
+        fetchStats();
         alert("Joke added! You're officially a dad.");
       })
       .catch(console.error);
@@ -112,6 +136,7 @@ export default function App() {
       .then(() => {
         if (view === "browse") fetchAll();
         if (joke && joke.id === id) setJoke({ ...joke, rating });
+        fetchStats();
       })
       .catch(console.error);
   };
@@ -158,6 +183,27 @@ export default function App() {
 
       {/* Content */}
       <main style={styles.main}>
+        {stats && (
+          <section style={styles.statsPanel} aria-label="Joke collection stats">
+            <div style={styles.statBox}>
+              <span style={styles.statValue}>{stats.total_jokes}</span>
+              <span style={styles.statLabel}>Jokes</span>
+            </div>
+            <div style={styles.statBox}>
+              <span style={styles.statValue}>{stats.total_categories}</span>
+              <span style={styles.statLabel}>Categories</span>
+            </div>
+            <div style={styles.statBox}>
+              <span style={styles.statValue}>{Number(stats.average_rating).toFixed(1)}</span>
+              <span style={styles.statLabel}>Avg Rating</span>
+            </div>
+            <div style={styles.statBox}>
+              <span style={styles.statValue}>{stats.total_times_told}</span>
+              <span style={styles.statLabel}>Tell Count</span>
+            </div>
+          </section>
+        )}
+
         {/* ---- RANDOM VIEW ---- */}
         {view === "random" && (
           <div style={styles.card}>
@@ -242,6 +288,20 @@ export default function App() {
             ))}
             {allJokes.length === 0 && (
               <p style={{ color: "#aaa", textAlign: "center" }}>No jokes found.</p>
+            )}
+            {stats && (stats.top_rated_setup || stats.most_told_setup) && (
+              <div style={styles.insightPanel}>
+                {stats.top_rated_setup && (
+                  <p style={styles.insightText}>
+                    <strong>Top rated:</strong> {stats.top_rated_setup}
+                  </p>
+                )}
+                {stats.most_told_setup && (
+                  <p style={styles.insightText}>
+                    <strong>Most told:</strong> {stats.most_told_setup}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         )}
@@ -359,6 +419,32 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "0 1rem",
     flex: 1,
   },
+  statsPanel: {
+    display: "grid",
+    gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
+    gap: "0.5rem",
+    marginBottom: "1rem",
+  },
+  statBox: {
+    background: "#0f172a",
+    border: "1px solid #334155",
+    borderRadius: 8,
+    padding: "0.75rem 0.4rem",
+    textAlign: "center",
+    minWidth: 0,
+  },
+  statValue: {
+    display: "block",
+    color: "#facc15",
+    fontSize: "1.15rem",
+    fontWeight: 700,
+  },
+  statLabel: {
+    display: "block",
+    color: "#94a3b8",
+    fontSize: "0.7rem",
+    marginTop: "0.15rem",
+  },
   card: {
     background: "#16213e",
     borderRadius: 12,
@@ -434,6 +520,17 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     gap: "0.5rem",
     marginBottom: "1rem",
+  },
+  insightPanel: {
+    borderTop: "1px solid #334155",
+    marginTop: "1rem",
+    paddingTop: "1rem",
+  },
+  insightText: {
+    color: "#cbd5e1",
+    fontSize: "0.85rem",
+    lineHeight: 1.4,
+    margin: "0.35rem 0",
   },
   select: {
     padding: "0.5rem",

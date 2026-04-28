@@ -1,17 +1,94 @@
-services: 
-    # ---------- PostgreSQL Database ----------
+services:
+  # ---------- PostgreSQL Database ----------
   db:
-    image: postgres:15-alpine
+    image: postgres:16-alpine
     container_name: dad-jokes-db
-    ports: 
+    ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    secrets:
+      - db_password
     environment:
       POSTGRES_USER: dadjokes
-      POSTGRES_PASSWORD: dadjokes
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
       POSTGRES_DB: dadjokes
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dadjokes -d dadjokes"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # ---------- Express API ----------
+  api:
+    build:
+      context: ./api
+    container_name: dad-jokes-api
+    ports:
+      - "3000:3000"
+    secrets:
+      - db_password
+    environment:
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: dadjokes
+      DB_PASSWORD_FILE: /run/secrets/db_password
+      DB_NAME: dadjokes
+      PORT: 3000
+    depends_on:
+      db:
+        condition: service_healthy
+    develop:
+      watch:
+        - action: rebuild
+          path: ./api/src
+        - action: rebuild
+          path: ./api/package.json
+        - action: rebuild
+          path: ./api/tsconfig.json
 
   # ---------- React Frontend (served by nginx) ----------
+  frontend:
+    build:
+      context: ./frontend
+    container_name: dad-jokes-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+    develop:
+      watch:
+        - action: rebuild
+          path: ./frontend/src
+        - action: rebuild
+          path: ./frontend/index.html
+        - action: rebuild
+          path: ./frontend/package.json
+        - action: rebuild
+          path: ./frontend/nginx.conf
+
+  # ---------- pgAdmin Database UI ----------
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: dad-jokes-pgadmin
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    secrets:
+      - db_password
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@dadjokes.local
+      PGADMIN_DEFAULT_PASSWORD_FILE: /run/secrets/db_password
+    depends_on:
+      db:
+        condition: service_healthy
+
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+
+volumes:
+  pgdata:
+  pgadmin-data:

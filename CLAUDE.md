@@ -13,14 +13,25 @@ docker compose down -v
 ```
 
 The app is available at `http://localhost:8080`. The frontend proxies `/api/*` requests to the Express API via nginx.
+pgAdmin is available at `http://localhost:5050`.
+
+Docker Compose Watch is supported:
+
+```bash
+docker compose up --build --watch
+```
+
+Database credentials are provided through the Compose secret at `secrets/db_password.txt`.
 
 ## Local Development (without Docker)
 
-Requires a running PostgreSQL instance. Set `DATABASE_URL` or individual `PGHOST`/`PGPORT`/`PGDATABASE`/`PGUSER`/`PGPASSWORD` env vars.
+Requires a running PostgreSQL instance. The API reads `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and either `DB_PASSWORD` or `DB_PASSWORD_FILE`.
 
 ```bash
 # API (port 3000)
-cd api && npm install && npm run dev
+cd api && npm install
+export DB_HOST=localhost DB_USER=dadjokes DB_PASSWORD=dadjokes DB_NAME=dadjokes
+npm run dev
 
 # Frontend (port 5173)
 cd frontend && npm install && npm run dev
@@ -56,7 +67,8 @@ Three-tier containerized app: **React SPA → Nginx → Express API → PostgreS
 | PATCH | `/api/jokes/:id/rate` | Body: `{ rating }` (0–5) |
 | DELETE | `/api/jokes/:id` | |
 | GET | `/api/categories` | Distinct categories from DB |
+| GET | `/api/stats` | Collection totals and top joke insights |
 
 ### Docker Setup
 
-Both services use multi-stage builds (builder → slim runtime). The API has a startup retry loop for DB readiness. Docker Compose health checks gate service startup order.
+Both app services use multi-stage builds (builder → slim runtime). The API has a startup retry loop for DB readiness. Docker Compose health checks gate service startup order. Compose Watch rebuilds services when source/config files change, and Compose Secrets provide the shared database password to Postgres, the API, and pgAdmin.
